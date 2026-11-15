@@ -9,8 +9,6 @@ Its very good at reading and analysing client side code, and can extract a ton o
 
 
 
-everything below is written by ai:
-
 ## Features
 
 - Conversation workspace with tool activity, pause/resume, and live guidance.
