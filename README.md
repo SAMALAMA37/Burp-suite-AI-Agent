@@ -1,4 +1,4 @@
-# BurpAI 4.5
+# ai burp
 
 A super duper extra extension that makes AI do most things that you can do
 
