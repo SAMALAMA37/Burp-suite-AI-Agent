@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Top Priority · 9Router</title>
+  <style>
+    :root { color-scheme: light dark; font: 1rem/1.5 system-ui, sans-serif; }
+    body { max-width: 42rem; margin: 4rem auto; padding: 0 1.25rem; }
+    h1 { margin-bottom: 0.5rem; }
+    label { display: block; margin-bottom: 0.4rem; font-weight: 600; }
+    #starting-model { margin-top: 1rem; }
+    select, button { font: inherit; padding: 0.5rem; }
+    select { width: 100%; }
+    button { margin-top: 1rem; }
+    #status { overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+  <main>
+    <a href="/dashboard">9Router Dashboard</a> · <a href="/dashboard/combos">Combos</a>
+    <h1>Top Priority</h1>
+    <p>Choose which provider 9Router tries first in <strong id="combo"></strong>.
+      Routes for other providers keep their fallback order.</p>
+    <form id="priority">
+      <label for="provider">First provider to try</label>
+      <select id="provider" disabled></select>
+      <div id="starting-model" hidden>
+        <label for="model">Model to add for this provider</label>
+        <select id="model"></select>
+      </div>
+      <button id="save" type="submit" disabled>Save provider priority</button>
+    </form>
+    <p id="status" role="status">Loading chat providers…</p>
+    <a id="login" href="/login" target="_blank" rel="noopener" hidden>Sign in to 9Router</a>
+  </main>
+  <script>
+    const comboName = new URLSearchParams(location.search).get('combo') || 'hub-chat';
+    const providerSelect = document.querySelector('#provider');
+    const modelSelect = document.querySelector('#model');
+    const modelField = document.querySelector('#starting-model');
+    const save = document.querySelector('#save');
+    const status = document.querySelector('#status');
+    const login = document.querySelector('#login');
+    document.querySelector('#combo').textContent = comboName;
+
+    const aliases = new Map([
+      ['antigravity', 'ag'], ['claude', 'cc'], ['cline', 'cl'], ['codex', 'cx'],
+      ['gemini-cli', 'gc'], ['github', 'gh'], ['iflow', 'if'], ['kilocode', 'kc'],
+      ['kiro', 'kr'], ['minimax-code-global', 'mmg'], ['opencode', 'oc'],
+      ['qoder', 'qd'], ['qwen', 'qw'],
+    ]);
+    const labels = new Map([
+      ['ag', 'Antigravity'], ['cc', 'Claude Code'], ['cl', 'Cline'], ['cx', 'Codex'],
+      ['gc', 'Gemini CLI'], ['gh', 'GitHub Copilot'], ['if', 'iFlow'], ['kc', 'Kilo Code'],
+      ['kr', 'Kiro'], ['mmg', 'MiniMax Code'], ['oc', 'OpenCode'], ['qd', 'Qoder'],
+      ['qw', 'Qwen Code'], ['openrouter', 'OpenRouter'], ['openai', 'OpenAI'],
+    ]);
+    let routing;
+
+    async function request(path, options) {
+      const response = await fetch(path, { cache: 'no-store', ...options });
+      if (response.status === 401 || response.status === 403 || response.redirected) {
+        login.hidden = false;
+        throw new Error('Sign in to 9Router, then refresh this page.');
+      }
+      if (!response.ok) throw new Error(`9Router returned HTTP ${response.status}. Try again.`);
+      return response.json();
+    }
+
+    function modelId(model) {
+      if (typeof model === 'string') return model;
+      if (model?.fullModel) return model.fullModel;
+      if (model?.provider && model?.model) return `${model.provider}/${model.model}`;
+      return '';
+    }
+
+    function providerKey(model) {
+      const route = modelId(model);
+      const slash = route.indexOf('/');
+      if (slash < 1) return '';
+      const prefix = route.slice(0, slash);
+      return aliases.get(prefix) || prefix;
+    }
+
+    function providerLabel(provider) {
+      return labels.get(provider) || provider.replace(/(^|-)([a-z])/g, (_, separator, letter) =>
+        (separator ? ' ' : '') + letter.toUpperCase());
+    }
+
+    async function loadRouting() {
+      const [{ combos }, settings, { data: catalog }] = await Promise.all([
+        request('/api/combos'), request('/api/settings'),
+        request('/v1/models', { headers: { 'x-9r-internal-models-fetch': '1' } }),
+      ]);
+      const combo = combos.find(combo => combo.name === comboName && (!combo.kind || combo.kind === 'llm'));
+      if (!combo) throw new Error(`Create the ${comboName} chat combo in 9Router Combos first.`);
+      const strategy = settings.comboStrategies?.[comboName]?.fallbackStrategy || settings.comboStrategy || 'fallback';
+      if (strategy !== 'fallback') throw new Error(`Set ${comboName} to Fallback in 9Router Combos to use a fixed first provider.`);
+
+      const providers = new Map();
+      for (const model of combo.models) {
+        const provider = providerKey(model);
+        if (provider) providers.set(provider, { inCombo: true, models: [] });
+      }
+      for (const { id, owned_by, kind } of catalog) {
+        if (owned_by === 'combo' || (kind && kind !== 'llm')) continue;
+        const provider = providerKey(id);
+        if (!provider) continue;
+        if (!providers.has(provider)) providers.set(provider, { inCombo: false, models: [] });
+        providers.get(provider).models.push(id);
+      }
+      if (!providers.size) throw new Error('Connect a chat provider in 9Router to set its priority.');
+      return { combo, providers };
+    }
+
+    function showModels() {
+      const provider = routing.providers.get(providerSelect.value);
+      modelField.hidden = !provider || provider.inCombo;
+      modelSelect.replaceChildren();
+      if (!modelField.hidden) {
+        modelSelect.add(new Option('Choose a model…', ''));
+        for (const route of provider.models) {
+          modelSelect.add(new Option(route.slice(route.indexOf('/') + 1), route));
+        }
+      }
+      modelSelect.disabled = modelField.hidden;
+      modelSelect.required = !modelField.hidden;
+      save.disabled = !provider;
+    }
+
+    function showRouting(current) {
+      routing = current;
+      const first = providerKey(routing.combo.models[0]);
+      const options = [...routing.providers.keys()].sort((a, b) => providerLabel(a).localeCompare(providerLabel(b)));
+      providerSelect.replaceChildren(new Option('Choose a provider…', ''),
+        ...options.map(provider => new Option(providerLabel(provider), provider)));
+      providerSelect.value = first;
+      providerSelect.disabled = false;
+      showModels();
+      status.textContent = first
+        ? `Current top priority is ${providerLabel(first)} (${modelId(routing.combo.models[0])}).`
+        : 'Choose a provider to set top priority.';
+    }
+
+    loadRouting().then(showRouting).catch(error => { status.textContent = error.message; });
+    providerSelect.addEventListener('change', showModels);
+
+    document.querySelector('#priority').addEventListener('submit', async event => {
+      event.preventDefault();
+      const selected = providerSelect.value;
+      const startingModel = modelSelect.value;
+      providerSelect.disabled = modelSelect.disabled = save.disabled = true;
+      status.textContent = 'Saving…';
+      try {
+        const current = await loadRouting();
+        const { combo, providers } = current;
+        const provider = providers.get(selected);
+        if (!provider || (!provider.inCombo && !provider.models.includes(startingModel))) {
+          showRouting(current);
+          throw new Error('The available routes changed. Choose the provider again.');
+        }
+        const preferred = provider.inCombo
+          ? combo.models.filter(model => providerKey(model) === selected)
+          : [startingModel];
+        const models = [...preferred, ...combo.models.filter(model => providerKey(model) !== selected)];
+        if (models.length !== combo.models.length || models.some((model, index) => model !== combo.models[index])) {
+          current.combo = await request(`/api/combos/${encodeURIComponent(combo.id)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ models }),
+          });
+        }
+        provider.inCombo = true;
+        showRouting(current);
+        status.textContent = `Saved ${providerLabel(selected)} as top priority.`;
+      } catch (error) {
+        status.textContent = error.message;
+      } finally {
+        providerSelect.disabled = !login.hidden;
+        modelSelect.disabled = !login.hidden || modelField.hidden;
+        save.disabled = !login.hidden || !providerSelect.value;
+      }
+    });
+  </script>
+</body>
+</html>
