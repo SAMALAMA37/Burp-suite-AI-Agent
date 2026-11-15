@@ -5,6 +5,12 @@ A super duper extra extension that makes AI do most things that you can do
 it integrates most of the current AI type cybersec capabilities, + more
 
 Its very good at reading and analysing client side code, and can extract a ton of information from it.
+
+
+
+
+everything below is written by ai:
+
 ## Features
 
 - Conversation workspace with tool activity, pause/resume, and live guidance.
