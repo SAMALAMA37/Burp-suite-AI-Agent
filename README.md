@@ -1,9 +1,10 @@
 # BurpAI 4.5
 
-An AI-assisted Burp Suite extension for investigating captured traffic, exploring JavaScript, testing hypotheses, and keeping evidence-linked notes.
+A super duper extra extension that makes AI do most things that you can do
 
-BurpAI runs inside Burp through Jython. Its local Connection Hub and optional WSL helper run separately on Python 3.
+it integrates most of the current AI type cybersec capabilities, + more
 
+Its very good at reading and analysing client side code, and can extract a ton of information from it.
 ## Features
 
 - Conversation workspace with tool activity, pause/resume, and live guidance.
